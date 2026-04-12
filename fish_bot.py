@@ -1,18 +1,16 @@
 import discord
 import asyncio
-import os
 import sys
-import numpy as np
-import onnxruntime as ort
-from tokenizers import Tokenizer
-from aiohttp import web
+import re
 import traceback
+import os
+from aiohttp import web
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
 # --- DUMMY WEB SERVER FOR RENDER ---
 async def handle_ping(request):
-    return web.Response(text="Blub! Fishy is alive and running natively on ONNX.")
+    return web.Response(text="Blub! Fishy is alive (PyTorch version).")
 
 async def start_dummy_server():
     app = web.Application()
@@ -25,60 +23,9 @@ async def start_dummy_server():
     print(f"Dummy web server started on port {port}")
 # -----------------------------------
 
-# --- ONNX AI SETUP ---
-print("Loading 10MB Quantized ONNX model...")
-try:
-    tokenizer = Tokenizer.from_file("docs/tokenizer.json")
-    session = ort.InferenceSession("docs/model.onnx")
-    input_name = session.get_inputs()[0].name
-    print("ONNX Model loaded successfully!")
-except Exception as e:
-    print(f"FAILED TO LOAD ONNX: {e}")
-    sys.exit(1)
-
-def run_fish_inference(prompt):
-    # GuppyLM was trained on pure lowercase text separated by newlines.
-    # No "You>" or "Guppy>" labels allowed!
-    clean_text = prompt.lower().strip()
-    text = f"{clean_text}\n"
-    
-    input_ids = tokenizer.encode(text).ids
-    
-    # Try to find an End-Of-Sequence token if the tokenizer has one
-    eos_token_id = tokenizer.token_to_id("<|endoftext|>")
-    if eos_token_id is None:
-        eos_token_id = tokenizer.token_to_id("</s>")
-        
-    generated_ids =[]
-    max_length = 128 
-    
-    # Run the generation loop
-    for _ in range(max_length - len(input_ids)):
-        x = np.array([input_ids], dtype=np.int64)
-        
-        # Predict the next word
-        logits = session.run(None, {input_name: x})[0]
-        next_token = int(np.argmax(logits[0, -1, :]))
-        
-        # Stop condition 1: It generated an official End-Of-Sequence token
-        if eos_token_id is not None and next_token == eos_token_id:
-            break
-            
-        generated_ids.append(next_token)
-        input_ids.append(next_token)
-        
-        # Stop condition 2: The fish finished its sentence and generated a newline
-        decoded_so_far = tokenizer.decode(generated_ids)
-        if "\n" in decoded_so_far:
-            break
-            
-    # Clean up the final output
-    response = tokenizer.decode(generated_ids).strip()
-    return response
-# ---------------------
-
 class FishBot(discord.Client):
     async def setup_hook(self):
+        # Start the dummy web server to keep Render happy
         self.loop.create_task(start_dummy_server())
 
     async def on_ready(self):
@@ -95,17 +42,51 @@ class FishBot(discord.Client):
 
             async with message.channel.typing():
                 try:
-                    loop = asyncio.get_running_loop()
-                    response = await loop.run_in_executor(None, run_fish_inference, clean_prompt)
+                    # Use the official working PyTorch CLI command
+                    process = await asyncio.create_subprocess_exec(
+                        sys.executable, '-m', 'guppylm', 'chat', '--prompt', clean_prompt,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+
+                    stdout, stderr = await process.communicate()
+                    out_str = stdout.decode('utf-8', errors='ignore').strip()
+                    err_str = stderr.decode('utf-8', errors='ignore').strip()
+                    
+                    if process.returncode != 0:
+                        error_msg = f"Crash! Exit code: {process.returncode}\nStderr:\n{err_str}"
+                        await message.channel.send(f"```{error_msg[:1900]}```")
+                        return
+
+                    # Remove terminal color codes
+                    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                    out_str = ansi_escape.sub('', out_str)
+                    
+                    final_lines =[]
+                    for line in out_str.split('\n'):
+                        clean_line = line.strip()
+                        
+                        # Filter out the model loading text and user echo
+                        if "GuppyLM loaded" in clean_line or clean_line.startswith("You>"):
+                            continue
+                            
+                        # Grab only the fish's response
+                        if "Guppy>" in clean_line:
+                            clean_line = clean_line.split("Guppy>")[-1].strip()
+                            
+                        if clean_line:
+                            final_lines.append(clean_line)
+
+                    response = "\n".join(final_lines)
                         
                     if not response:
-                        response = "blub. empty water."
+                        response = f"blub. output was empty. Error check:\n{err_str[:500]}"
 
                     await message.channel.send(response[:1900])
                     
                 except Exception as e:
                     tb = traceback.format_exc()
-                    await message.channel.send(f"ONNX Error:\n```python\n{tb[:1900]}\n```")
+                    await message.channel.send(f"Python Error:\n```python\n{tb[:1900]}\n```")
 
 intents = discord.Intents.default()
 intents.message_content = True
