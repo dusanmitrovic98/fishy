@@ -6,13 +6,12 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 from aiohttp import web
-import traceback
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
-# --- DUMMY WEB SERVER FOR RENDER ---
+# --- DUMMY WEB SERVER ---
 async def handle_ping(request):
-    return web.Response(text="Blub! Fishy is alive and running natively on ONNX.")
+    return web.Response(text="Blub! Fishy is alive and FAST on ONNX.")
 
 async def start_dummy_server():
     app = web.Application()
@@ -22,97 +21,50 @@ async def start_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Dummy web server started on port {port}")
-# -----------------------------------
 
-# --- ONNX AI SETUP (LOADS ONCE, SUPER FAST) ---
-print("Loading 10MB Quantized ONNX model...")
+# --- ONNX AI SETUP (LOADS ONCE) ---
+print("Loading Fast ONNX model...")
 try:
-    # Ensure these files are uploaded to your GitHub!
     tokenizer = Tokenizer.from_file("docs/tokenizer.json")
     session = ort.InferenceSession("docs/model.onnx")
     input_name = session.get_inputs()[0].name
-    print("ONNX Model loaded successfully!")
 except Exception as e:
-    print(f"FAILED TO LOAD ONNX: {e}")
+    print(f"ERROR: Could not find ONNX files in docs/ folder: {e}")
     sys.exit(1)
 
 def run_fish_inference(prompt):
-    # CRITICAL FIX: The model was trained ONLY on lowercase text separated by a newline.
-    # Capital letters or "You>" prefixes confuse it into hallucinating!
-    clean_text = prompt.lower().strip()
-    text = f"{clean_text}\n"
-    
+    # GuppyLM was trained ONLY on lowercase text + newline
+    text = f"{prompt.lower().strip()}\n"
     input_ids = tokenizer.encode(text).ids
     
-    eos_token_id = tokenizer.token_to_id("<|endoftext|>")
-    if eos_token_id is None:
-        eos_token_id = tokenizer.token_to_id("</s>")
-        
-    generated_ids =[]
-    max_length = 128 
-    
-    # Generate tokens one by one
-    for _ in range(max_length - len(input_ids)):
+    generated_ids = []
+    for _ in range(64): # Max response length
         x = np.array([input_ids], dtype=np.int64)
-        
         logits = session.run(None, {input_name: x})[0]
         next_token = int(np.argmax(logits[0, -1, :]))
         
-        # Stop if it hits an end-of-sequence token
-        if eos_token_id is not None and next_token == eos_token_id:
-            break
-            
         generated_ids.append(next_token)
         input_ids.append(next_token)
         
-        # Stop if the fish generates a newline (meaning it finished its sentence)
-        decoded_so_far = tokenizer.decode(generated_ids)
-        if "\n" in decoded_so_far:
-            break
+        if "\n" in tokenizer.decode(generated_ids): break
             
-    response = tokenizer.decode(generated_ids).strip()
-    return response
-# ---------------------
+    return tokenizer.decode(generated_ids).strip()
 
 class FishBot(discord.Client):
     async def setup_hook(self):
         self.loop.create_task(start_dummy_server())
 
-    async def on_ready(self):
-        print(f'Blub blub! Logged in as {self.user}')
-
     async def on_message(self, message):
-        if message.author == self.user:
+        if message.author == self.user or "fishy" not in message.content.lower():
             return
 
-        if "fishy" in message.content.lower():
-            clean_prompt = message.content.lower().replace("fishy", "").strip()
-            if not clean_prompt:
-                clean_prompt = "hello" 
-
-            async with message.channel.typing():
-                try:
-                    # Run the inference directly in memory (takes milliseconds!)
-                    loop = asyncio.get_running_loop()
-                    response = await loop.run_in_executor(None, run_fish_inference, clean_prompt)
-                        
-                    if not response:
-                        response = "blub. empty water."
-
-                    await message.channel.send(response[:1900])
-                    
-                except Exception as e:
-                    tb = traceback.format_exc()
-                    await message.channel.send(f"ONNX Error:\n```python\n{tb[:1900]}\n```")
+        clean_prompt = message.content.lower().replace("fishy", "").strip() or "hello"
+        async with message.channel.typing():
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, run_fish_inference, clean_prompt)
+            await message.channel.send(response or "blub.")
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = FishBot(intents=intents)
-
-if not TOKEN:
-    print("ERROR: DISCORD_BOT_TOKEN environment variable not set!")
-    sys.exit(1)
-
 client.run(TOKEN)
