@@ -1,0 +1,5 @@
+onnxruntime
+tokenizers
+discord.py
+aiohttp
+numpy
