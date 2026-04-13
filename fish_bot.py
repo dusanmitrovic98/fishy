@@ -79,25 +79,27 @@ NOMMING_SOUNDS = [
     "Chomping down hard! 🐡🪸"
 ]
 
-# --- TANK CHANNEL STORAGE LOGIC ---
+# --- DATABASES FOR RENDER PERSISTENCE ---
 TANKS_FILE = "tanks.json"
+DISABLED_NOMS_FILE = "disabled_noms.json"
 
-def load_tanks():
-    if os.path.exists(TANKS_FILE):
-        with open(TANKS_FILE, "r") as f:
+def load_json_set(filepath):
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
             return set(json.load(f))
     return set()
 
-def save_tanks(tanks_set):
-    with open(TANKS_FILE, "w") as f:
-        json.dump(list(tanks_set), f)
+def save_json_set(filepath, data_set):
+    with open(filepath, "w") as f:
+        json.dump(list(data_set), f)
 
-tank_channels = load_tanks()
+tank_channels = load_json_set(TANKS_FILE)
+disabled_noms = load_json_set(DISABLED_NOMS_FILE)
 # ----------------------------------
 
 # --- DUMMY WEB SERVER FOR RENDER ---
 async def handle_ping(request):
-    return web.Response(text="Blub! Fishy is alive (PyTorch version).")
+    return web.Response(text="Blub! Fishy is alive and guarding the tank.")
 
 async def start_dummy_server():
     app = web.Application()
@@ -114,6 +116,9 @@ class FishBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tree = app_commands.CommandTree(self)
+        
+        # QUEUE LOCK: Only ONE person can trigger the AI at a time!
+        self.ai_lock = asyncio.Lock()
 
     async def setup_hook(self):
         self.loop.create_task(start_dummy_server())
@@ -125,63 +130,77 @@ class FishBot(discord.Client):
 
     async def get_guppylm_response(self, prompt, channel=None):
         nom_task = None
-        
-        # If a channel is provided, start the background nomming loop!
-        if channel:
-            async def nom_loop():
-                try:
-                    while True:
-                        # Wait 5 to 10 seconds between sounds
-                        await asyncio.sleep(random.uniform(5, 10))
-                        await channel.send(random.choice(NOMMING_SOUNDS))
-                except asyncio.CancelledError:
-                    # This happens when the AI is finished and we cancel the task
-                    pass
+
+        # WAIT IN LINE: Bot won't proceed until it's this user's turn
+        async with self.ai_lock:
             
-            # Start the loop concurrently
-            nom_task = asyncio.create_task(nom_loop())
+            # Start nomming sounds only if a channel was provided AND nomming isn't disabled here
+            if channel and channel.id not in disabled_noms:
+                async def nom_loop():
+                    try:
+                        while True:
+                            await asyncio.sleep(random.uniform(5, 10))
+                            await channel.send(random.choice(NOMMING_SOUNDS))
+                    except asyncio.CancelledError:
+                        pass
+                
+                nom_task = asyncio.create_task(nom_loop())
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            process = None
+            try:
+                # NOTE FOR ONNX: If your package uses an ONNX flag, add it here! 
+                # Example: sys.executable, '-m', 'guppylm', 'chat', '--onnx', '--prompt', prompt
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
 
-            stdout, stderr = await process.communicate()
-            out_str = stdout.decode('utf-8', errors='ignore').strip()
-            err_str = stderr.decode('utf-8', errors='ignore').strip()
+                # TIMEOUT FAILSAFE: Kill the process if it hangs for more than 60 seconds
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
 
-            if process.returncode != 0:
-                error_msg = f"Crash! Exit code: {process.returncode}\nStderr:\n{err_str}"
-                return f"```{error_msg[:1900]}```"
+                out_str = stdout.decode('utf-8', errors='ignore').strip()
+                err_str = stderr.decode('utf-8', errors='ignore').strip()
 
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            out_str = ansi_escape.sub('', out_str)
+                if process.returncode != 0:
+                    error_msg = f"Crash! Exit code: {process.returncode}\nStderr:\n{err_str}"
+                    return f"```{error_msg[:1900]}```"
 
-            final_lines = []
-            for line in out_str.split('\n'):
-                clean_line = line.strip()
-                if "GuppyLM loaded" in clean_line or clean_line.startswith("You>"):
-                    continue
-                if "Guppy>" in clean_line:
-                    clean_line = clean_line.split("Guppy>")[-1].strip()
-                if clean_line:
-                    final_lines.append(clean_line)
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                out_str = ansi_escape.sub('', out_str)
 
-            response = "\n".join(final_lines)
-            if not response:
-                response = f"blub. output was empty. Error check:\n{err_str[:500]}"
+                final_lines = []
+                for line in out_str.split('\n'):
+                    clean_line = line.strip()
+                    if "GuppyLM loaded" in clean_line or clean_line.startswith("You>"):
+                        continue
+                    if "Guppy>" in clean_line:
+                        clean_line = clean_line.split("Guppy>")[-1].strip()
+                    if clean_line:
+                        final_lines.append(clean_line)
 
-            return response[:1900]
+                response = "\n".join(final_lines)
+                if not response:
+                    response = f"blub. output was empty. Error check:\n{err_str[:500]}"
 
-        except Exception as e:
-            tb = traceback.format_exc()
-            return f"Python Error:\n```python\n{tb[:1900]}\n```"
-        finally:
-            # Guarantee the nomming stops when the AI finishes
-            if nom_task:
-                nom_task.cancel()
+                return response[:1900]
+
+            except asyncio.TimeoutError:
+                if process:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                return "🫧 *cough cough* I choked on a bubble! (The AI took too long to respond. Try again!)"
+
+            except Exception as e:
+                tb = traceback.format_exc()
+                return f"Python Error:\n```python\n{tb[:1900]}\n```"
+                
+            finally:
+                # Always kill the nomming task when the AI is done/crashes
+                if nom_task:
+                    nom_task.cancel()
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -192,10 +211,8 @@ class FishBot(discord.Client):
         # ---------------------------------------------------------
         if message.channel.id in tank_channels:
             
-            # 1. Reply to protect the user
             await message.reply(random.choice(SHIELD_PHRASES))
 
-            # 2. Eat the message
             try:
                 await message.delete()
             except discord.Forbidden:
@@ -203,11 +220,9 @@ class FishBot(discord.Client):
             except discord.NotFound:
                 pass 
 
-            # 3. Start generating response AND nomming sounds
             random_category = random.choice(CATEGORIES)
             
             async with message.channel.typing():
-                # We pass message.channel here to trigger the nomming loop!
                 ai_response = await self.get_guppylm_response(random_category, channel=message.channel)
                 await message.channel.send(f"**Topic: {random_category}**\n{ai_response}")
             
@@ -222,7 +237,6 @@ class FishBot(discord.Client):
                 clean_prompt = "hello"
 
             async with message.channel.typing():
-                # Nomming in normal channels too!
                 ai_response = await self.get_guppylm_response(clean_prompt, channel=message.channel)
                 await message.channel.send(ai_response)
 
@@ -250,7 +264,6 @@ async def fishy_slash(interaction: discord.Interaction, category: str):
         return
 
     await interaction.response.defer()
-    # Pass the interaction channel to start nomming sounds!
     ai_response = await client.get_guppylm_response(category, channel=interaction.channel)
     await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
 
@@ -261,12 +274,28 @@ async def toggle_tank(interaction: discord.Interaction):
     
     if channel_id in tank_channels:
         tank_channels.remove(channel_id)
-        save_tanks(tank_channels)
+        save_json_set(TANKS_FILE, tank_channels)
         await interaction.response.send_message("🫧 Blub! I have stopped eating messages here. This channel is no longer a Fishy Tank.")
     else:
         tank_channels.add(channel_id)
-        save_tanks(tank_channels)
+        save_json_set(TANKS_FILE, tank_channels)
         await interaction.response.send_message("🌊 Splash! This channel is now a Fishy Tank! I will eat messages here and protect everyone's eyes.")
+
+@client.tree.command(name="toggle_nomming", description="Turn Fishy's waiting/eating sounds ON or OFF for this channel.")
+@app_commands.default_permissions(manage_channels=True)
+async def toggle_nomming(interaction: discord.Interaction):
+    channel_id = interaction.channel.id
+    
+    if channel_id in disabled_noms:
+        # It was disabled, let's enable it!
+        disabled_noms.remove(channel_id)
+        save_json_set(DISABLED_NOMS_FILE, disabled_noms)
+        await interaction.response.send_message("🐟 *Chomp chomp!* Nomming sounds are now **ON** in this channel.")
+    else:
+        # It was enabled, let's disable it!
+        disabled_noms.add(channel_id)
+        save_json_set(DISABLED_NOMS_FILE, disabled_noms)
+        await interaction.response.send_message("🫧 *Quiet blubs...* Nomming sounds are now **OFF** in this channel.")
 
 # ---------------------------------------------------------
 
