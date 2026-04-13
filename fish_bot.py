@@ -2,13 +2,17 @@ import discord
 from discord import app_commands
 import asyncio
 import sys
-import re
 import traceback
 import os
 import random
 import urllib.parse
 from aiohttp import web, ClientSession
 from motor.motor_asyncio import AsyncIOMotorClient
+
+# --- IMPORT AI LOCALLY (From your Colab Image) ---
+from huggingface_hub import snapshot_download
+import torch
+from inference import GuppyInference
 
 def escape_mongo_uri(uri: str) -> str:
     if not uri: return ""
@@ -30,7 +34,7 @@ TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 MONGO_URI = escape_mongo_uri(os.getenv('MONGO_URI'))
 ERROR_WEBHOOK_URL = "https://discord.com/api/webhooks/1493251412304330783/N8E3t_u-tSYBIP9k2KRlj1due8opyZDXXWhZwcdSVRwTE2h0vVsLy4m6s4upit6-mjNn"
 
-# --- RESTORED ARRAYS ---
+# --- ARRAYS ---
 CATEGORIES = ["about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"]
 
 SHIELD_PHRASES = [
@@ -100,7 +104,7 @@ NOMMING_SOUNDS = [
 # --- MONGODB SETUP ---
 tank_channels = set()
 shield_only_channels = set()
-enabled_noms = set() # Empty by default = Nomming is OFF until toggled.
+enabled_noms = set() 
 
 if MONGO_URI:
     mongo_client = AsyncIOMotorClient(MONGO_URI)
@@ -157,6 +161,24 @@ async def start_dummy_server():
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
+# --- GUPPY AI ENGINE INSTANCE ---
+guppy_engine = None
+
+def generate_guppy_response(prompt):
+    """Runs the AI directly in memory, just like the Colab notebook!"""
+    if guppy_engine is None:
+        return "blub. (model not loaded)"
+    try:
+        response = guppy_engine.chat_completion(
+            [{'role': 'user', 'content': prompt}], 
+            max_tokens=64
+        )
+        return response['choices'][0]['message'].get('content', '').strip()
+    except Exception as e:
+        print(f"Inference error: {e}")
+        return "🫧 *Glub*... Error in the tank."
+
+
 class FishBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -182,26 +204,10 @@ class FishBot(discord.Client):
                     except asyncio.CancelledError: pass
                 nom_task = asyncio.create_task(nom_loop())
 
-            process = None
             try:
-                process = await asyncio.create_subprocess_exec(
-                    sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                # INCREASED TIMEOUT TO 120 SECONDS FOR RENDER
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
-
-                if process.returncode != 0:
-                    err_msg = stderr.decode('utf-8', errors='ignore')
-                    await send_error_to_webhook("GuppyLM Subprocess Crash", err_msg)
-                    return "🫧 *cough* My brain feels like it's in a whirlpool. (AI Error)"
-
-                out = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', stdout.decode('utf-8', errors='ignore'))
-                final = [l.split("Guppy>")[-1].strip() for l in out.split('\n') if "Guppy>" in l]
-                return "\n".join(final)[:1900] or "blub. (no output from model)"
-            except asyncio.TimeoutError:
-                if process: process.kill()
-                return "🫧 I thought too hard and ran out of bubbles. (AI Timeout)"
+                # Uses asyncio.to_thread so it doesn't freeze the discord bot while thinking
+                resp = await asyncio.to_thread(generate_guppy_response, prompt)
+                return resp
             except Exception:
                 await send_error_to_webhook("AI Processing Error", traceback.format_exc())
                 return "🫧 *Glub*... Error in the tank."
@@ -213,13 +219,17 @@ class FishBot(discord.Client):
         cid = message.channel.id
 
         if cid in tank_channels:
+            # 1. Reply to the message
+            await message.reply(random.choice(SHIELD_PHRASES))
+            # 2. Delete the message
             try: await message.delete()
             except: pass
-            msg = await message.channel.send(random.choice(SHIELD_PHRASES))
+            
+            # 3. Generate AI response and send as new message
             async with message.channel.typing():
                 cat = random.choice(CATEGORIES)
                 resp = await self.get_guppylm_response(cat, channel=message.channel)
-                await msg.edit(content=resp)
+                await message.channel.send(resp)
             return
 
         if cid in shield_only_channels:
@@ -276,5 +286,18 @@ async def toggle_nom(interaction: discord.Interaction):
         msg = "🐟 Nomming: **ON**. *Chomp chomp!*"
     await sync_to_db(); await interaction.response.send_message(msg)
 
+
 if __name__ == "__main__":
+    if not TOKEN or not MONGO_URI:
+        print("❌ Set your DISCORD_BOT_TOKEN and MONGO_URI Environment Variables!")
+        sys.exit(1)
+        
+    print("Downloading/Verifying GuppyLM Model (Just like Colab)...")
+    snapshot_download(repo_id='arman-bd/guppylm-9M', local_dir='.')
+    
+    print("Loading AI Model into memory...")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    guppy_engine = GuppyInference('pytorch_model.bin', 'tokenizer.json', device=device)
+    print("AI Model loaded successfully!")
+
     client.run(TOKEN)
