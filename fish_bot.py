@@ -85,33 +85,34 @@ class FishBot(discord.Client):
         if message.author == self.user:
             return
 
+        # ID of the "Fishy Tank" channel
         TARGET_PROMO_CHANNEL = 1492658172240986142
 
         # ---------------------------------------------------------
-        # 1. BUMPER BOT INTERCEPTOR LOGIC
+        # 1. FISHY TANK INTERCEPTOR LOGIC (Bots AND Humans)
         # ---------------------------------------------------------
-        # If a bot posts in the specific channel...
-        if message.channel.id == TARGET_PROMO_CHANNEL and message.author.bot:
+        # If ANYONE posts in the Fishy Tank channel...
+        if message.channel.id == TARGET_PROMO_CHANNEL:
             
-            # Fun, creative anti-spam phrases
+            # Fun, creative phrases for the fish tank
             shield_phrases = [
-                "Do not worry! Fishy is keeping your eyes safe from these ads! 🐟🛡️",
-                "Blub blub! Quick, look at me instead of this promo! 🫧",
-                "Spam detected! Fishy is eating the advertisement. Nom nom! 🐠",
-                "Nothing to see here! Just Fishy swimming over the ads to protect the server! 🌊",
-                "Ad blocker deployed! I am a fish, not an ad! 🐡"
+                "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
+                "Blub blub! Welcome to the fish tank! Quick, look at me instead! 🫧",
+                "Message intercepted! Fishy is eating the words. Nom nom! 🐠",
+                "Nothing to see here! Just Fishy swimming around the tank! 🌊",
+                "Splash! I am a fish, and this is my tank! 🐡"
             ]
             
-            # Hidden prompts sent to the AI to distract the server
+            # Hidden prompts sent to the AI to flood the channel with fun stuff
             random_ai_prompts = [
                 "Tell me a random interesting fact about the ocean or fish.",
-                "Say something incredibly funny and random to distract from an ad.",
-                "Make up a very short story about a brave fish.",
+                "Say something incredibly funny and random to distract everyone.",
+                "Make up a very short story about a brave fish in a fish tank.",
                 "Give me a random inspiring quote.",
-                "Sing a short song about swimming in the sea."
+                "Sing a short song about swimming in a glass fish tank."
             ]
 
-            # Reply to the bumper bot's message directly
+            # Reply to the message directly
             await message.reply(random.choice(shield_phrases))
 
             # Trigger the AI for a random response to follow up
@@ -120,11 +121,11 @@ class FishBot(discord.Client):
                 ai_response = await self.get_guppylm_response(ai_prompt)
                 await message.channel.send(ai_response)
             
-            # Stop here so we don't trigger the regular chat logic
+            # Stop here so we don't trigger the regular chat logic below
             return
 
         # ---------------------------------------------------------
-        # 2. NORMAL CHAT LOGIC (Anywhere else, or from humans)
+        # 2. NORMAL CHAT LOGIC (Anywhere else)
         # ---------------------------------------------------------
         if "fishy" in message.content.lower():
             clean_prompt = message.content.lower().replace("fishy", "").strip()
