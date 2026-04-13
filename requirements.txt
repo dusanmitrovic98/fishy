@@ -1,7 +1,1 @@
 discord.py
-aiohttp
-motor
-dnspython
-numpy
-tokenizers
-torch --index-url https://download.pytorch.org/whl/cpu
