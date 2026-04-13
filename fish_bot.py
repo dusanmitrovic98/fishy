@@ -62,7 +62,7 @@ async def send_error_to_webhook(error_title, error_message):
 
 async def load_settings_from_db():
     global tank_channels, shield_only_channels, enabled_noms
-    if not settings_col: return
+    if settings_col is None: return  
     try:
         doc = await settings_col.find_one({"id": "global_config"})
         if doc:
@@ -73,7 +73,7 @@ async def load_settings_from_db():
         await send_error_to_webhook("Database Load Failure", traceback.format_exc())
 
 async def sync_to_db():
-    if not settings_col: return
+    if settings_col is None: return  
     try:
         await settings_col.update_one(
             {"id": "global_config"},
@@ -158,7 +158,8 @@ class FishBot(discord.Client):
             async with message.channel.typing():
                 cat = random.choice(CATEGORIES)
                 resp = await self.get_guppylm_response(cat, channel=message.channel)
-                await msg.edit(content=f"**Topic: {cat}**\n{resp}")
+                # FIX: Removed the "Topic:" prefix so it only sends the AI's response
+                await msg.edit(content=resp)
             return
 
         elif cid in shield_only_channels:
