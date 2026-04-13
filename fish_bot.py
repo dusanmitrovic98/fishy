@@ -30,15 +30,77 @@ TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 MONGO_URI = escape_mongo_uri(os.getenv('MONGO_URI'))
 ERROR_WEBHOOK_URL = "https://discord.com/api/webhooks/1493251412304330783/N8E3t_u-tSYBIP9k2KRlj1due8opyZDXXWhZwcdSVRwTE2h0vVsLy4m6s4upit6-mjNn"
 
-# ==========================================
-# KEEP YOUR CATEGORIES, SHIELD_PHRASES, AND NOMMING_SOUNDS HERE!
-# Do not delete your local arrays!
-# ==========================================
+# --- RESTORED ARRAYS ---
+CATEGORIES = ["about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"]
+
+SHIELD_PHRASES = [
+    "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
+    "Blub blub! I ate that message! Quick, look at me instead! 🫧",
+    "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
+    "Nothing to see here! Just Fishy swimming around the tank! 🌊",
+    "Splash! I deleted that! This is MY tank! 🐡",
+    "Bubble barrier activated! No ads getting through this reef! 🫧🪸",
+    "I’ve buried that message deep under the seafloor sand. 🐚🏝️",
+    "Gulp! I thought that was a juicy worm. My mistake! 🪱🐠",
+    "The current swept that away before I could even blink. 🌊🐟",
+    "Engaging the bioluminescent distraction protocol! 🐙✨",
+    "Washed it right out with a big splash! 🐋🌊",
+    "That message was too salty for this tank. *patooey!* 🐡💦",
+    "Dragging that promo down to the abyss. ⚓🕳️",
+    "Hiding your eyes behind my fins until the bad text is gone! 🐠🫧",
+    "Spam belongs in a can, not my tank! *chomp* 🐠🥫",
+    "Intercepted by the best guardian in the reef! 🪸🦈",
+    "Burp! Excuse me, that advertisement was very filling. 🫧🐟",
+    "Sweeping the tank clean of spam! Swish swish! 🧹🌊",
+    "Snatching that right out of the water! 🦑💧",
+    "Deployed the ink cloud! You can't see the spam anymore! 🐙💨",
+    "Camouflage mode: ON. I've blended that message into the rocks. 🪨🐡",
+    "Feeding the spam to the hungry anemones! 🪸🍴",
+    "The kraken has claimed that message for the deep! 🐙⚓",
+    "Diverting the current! That text is heading for another server. 🌊🚢",
+    "My tank, my rules! And I say NO to that message. 🐠🌊",
+    "The currents have washed that message away! 🌊🐚",
+    "Swallowing that one whole! 🦈",
+    "Bloop... tasty spam 🐠"
+]
+
+NOMMING_SOUNDS = [
+    "*nom nom nom*... 🫧",
+    "Crunch crunch... eating the data kelp 🪸",
+    "Glub glub... chewing on the bytes 🐟",
+    "Slurp... delicious text 🐡",
+    "Nibble nibble... 🦐",
+    "*chomp*... needs more salt 🌊",
+    "*Pop pop pop*... popping the spam bubbles! 🫧",
+    "Chewing on some tasty metadata flakes... 🐟",
+    "*Tail splash*... just tidying up the gravel! 🌊",
+    "Munching on a digital shrimp... *crunch* 🦐",
+    "Bloop... blop... swallowing the bytes... 💧",
+    "*Click click*... talking to the dolphins while I eat... 🐬",
+    "Feasting on the seaweed forest... 🌿🐠",
+    "Cracking open a cold text-shell... 🐚",
+    "Gurgle gurgle... the filter is extra hungry today! ⚙️🫧",
+    "*Chomp*... oh, that one was spicy! 🌶️🐠",
+    "Nibbling at the edges of the conversation... 🐟",
+    "Taking a big bite out of the ocean floor! 🏝️🦀",
+    "*Slurp slurp*... drinking up the ink! 🦑",
+    "Devouring the evidence! 🐙💧",
+    "*Munch munch*... tastes like fresh plankton! 🌊🦠",
+    "Sifting through the sand for more words... 🏖️🐠",
+    "Grinding up the message like a parrotfish! 🐡🪸",
+    "Is this organic? *chew chew* 🌿🐟",
+    "Nomming away at the digital algae! 🌿🫧🐠",
+    "Tastes like pixel flakes! 🍂🫧",
+    "Chewing on the seaweed... 🌿🫧",
+    "Slurp! Slurping up the sentences like worms! 🐍🐠",
+    "Smack smack... surprisingly nutritious! 🐟",
+    "Snip snap! Pinching the words into pieces! 🦀"
+]
 
 # --- MONGODB SETUP ---
 tank_channels = set()
 shield_only_channels = set()
-enabled_noms = set() # This replaces 'disabled_noms'. Since it's empty, nomming is OFF by default everywhere.
+enabled_noms = set() # Empty by default = Nomming is OFF until toggled.
 
 if MONGO_URI:
     mongo_client = AsyncIOMotorClient(MONGO_URI)
@@ -50,7 +112,7 @@ else:
 async def send_error_to_webhook(error_title, error_message):
     async with ClientSession() as session:
         payload = {
-            "embeds":[{
+            "embeds": [{
                 "title": f"❌ Fishy Error: {error_title}",
                 "description": f"```python\n{error_message[:1900]}```",
                 "color": 15158332,
@@ -58,22 +120,22 @@ async def send_error_to_webhook(error_title, error_message):
             }]
         }
         try: await session.post(ERROR_WEBHOOK_URL, json=payload)
-        except Exception: pass
+        except: pass
 
 async def load_settings_from_db():
     global tank_channels, shield_only_channels, enabled_noms
-    if settings_col is None: return  
+    if settings_col is None: return
     try:
         doc = await settings_col.find_one({"id": "global_config"})
         if doc:
-            tank_channels = set(doc.get("tank_channels",[]))
+            tank_channels = set(doc.get("tank_channels", []))
             shield_only_channels = set(doc.get("shield_only_channels", []))
-            enabled_noms = set(doc.get("enabled_noms",[]))
-    except Exception as e:
+            enabled_noms = set(doc.get("enabled_noms", []))
+    except Exception:
         await send_error_to_webhook("Database Load Failure", traceback.format_exc())
 
 async def sync_to_db():
-    if settings_col is None: return  
+    if settings_col is None: return
     try:
         await settings_col.update_one(
             {"id": "global_config"},
@@ -83,7 +145,7 @@ async def sync_to_db():
                 "enabled_noms": list(enabled_noms)
             }}, upsert=True
         )
-    except Exception as e:
+    except Exception:
         await send_error_to_webhook("Database Sync Failure", traceback.format_exc())
 
 # --- WEB SERVER ---
@@ -106,13 +168,11 @@ class FishBot(discord.Client):
         await load_settings_from_db()
         await self.tree.sync()
 
-    async def on_ready(self): 
-        print(f'Logged in as {self.user}')
+    async def on_ready(self): print(f'Logged in as {self.user}')
 
     async def get_guppylm_response(self, prompt, channel=None):
         nom_task = None
         async with self.ai_lock:
-            # ONLY runs if the channel was explicitly toggled ON
             if channel and channel.id in enabled_noms:
                 async def nom_loop():
                     try:
@@ -128,6 +188,7 @@ class FishBot(discord.Client):
                     sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
+                # INCREASED TIMEOUT TO 120 SECONDS FOR RENDER
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
 
                 if process.returncode != 0:
@@ -158,14 +219,13 @@ class FishBot(discord.Client):
             async with message.channel.typing():
                 cat = random.choice(CATEGORIES)
                 resp = await self.get_guppylm_response(cat, channel=message.channel)
-                # FIX: Removed the "Topic:" prefix so it only sends the AI's response
                 await msg.edit(content=resp)
             return
 
-        elif cid in shield_only_channels:
+        if cid in shield_only_channels:
             try: await message.delete()
             except: pass
-            await message.channel.send(random.choice(SHIELD_PHRASES), delete_after=10) 
+            await message.channel.send(random.choice(SHIELD_PHRASES), delete_after=10)
             return
 
         if "fishy" in message.content.lower():
@@ -217,7 +277,4 @@ async def toggle_nom(interaction: discord.Interaction):
     await sync_to_db(); await interaction.response.send_message(msg)
 
 if __name__ == "__main__":
-    if not TOKEN or not MONGO_URI:
-        print("❌ Set your DISCORD_BOT_TOKEN and MONGO_URI Environment Variables!")
-        sys.exit(1)
     client.run(TOKEN)
