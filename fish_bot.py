@@ -11,7 +11,8 @@ from aiohttp import web
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
-# Your provided list of categories
+# --- EXPANDED CREATIVE LISTS ---
+
 CATEGORIES = [
     "about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", 
     "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", 
@@ -21,22 +22,76 @@ CATEGORIES = [
     "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"
 ]
 
+SHIELD_PHRASES = [
+    "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
+    "Blub blub! I ate that message! Quick, look at me instead! 🫧",
+    "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
+    "Nothing to see here! Just Fishy swimming around the tank! 🌊",
+    "Splash! I deleted that! This is MY tank! 🐡",
+    "Target acquired and swallowed whole! 🦈🫧",
+    "Ad blocker deployed! I am a fish, not an ad! 🪸",
+    "Yum! That promo tasted like stale algae. 🌿🐟",
+    "Sweeping the tank clean of spam! Swish swish! 🧹🌊",
+    "Gulp! That message has been sent to the bottom of the ocean. ⚓🫧",
+    "Protecting the ecosystem from unwanted text! 🦀🛡️",
+    "Snatching that right out of the water! 🦑💧",
+    "Oops! I accidentally ate the ad while hunting for flakes. 🐡🫧",
+    "The currents have washed that message away! 🌊🐚",
+    "Chewed it up and spat it into the filter! ⚙️🐟",
+    "Spam belongs in a can, not my tank! *chomp* 🐠🥫",
+    "Intercepted by the best guardian in the reef! 🪸🦈",
+    "My tank, my rules! And I say NO to that message. 🐡🌊",
+    "Burp! Excuse me, that advertisement was very filling. 🫧🐟",
+    "Hiding your eyes behind my fins! 🐠🫧"
+]
+
+NOMMING_SOUNDS = [
+    "*nom nom nom*... 🫧",
+    "Crunch crunch... eating the data kelp 🪸",
+    "Glub glub... chewing on the bytes 🐟",
+    "Slurp... delicious text 🐡",
+    "Nibble nibble... 🦐",
+    "*chomp*... needs more salt 🌊",
+    "Munching on the coral... 🪸🫧",
+    "Bloop... tasty spam 🐠",
+    "Snack time! *crunch* 🦀",
+    "Swallowing that one whole! 🦈",
+    "Chewing on the seaweed... 🌿🫧",
+    "*smack smack*... surprisingly nutritious! 🐟",
+    "Gulp! Down the hatch! 💧",
+    "Snip snap! Pinching the words into pieces! 🦀",
+    "Glug glug... washing it down with tank water 🌊",
+    "Tastes like pixel flakes! 🐠🫧",
+    "*nibbles gently*... not bad! 🐡",
+    "Munch crunch munch... 🪸",
+    "Gobbling it up before the snails get it! 🐌💧",
+    "A fine meal for a hungry fish! 🐟🌿",
+    "*chew chew*... spitting out the bad parts 🫧",
+    "Slorp! Slurping up the sentences like worms! 🪱🐠",
+    "Biting into the text... *CRACK* 🐚",
+    "Nomming away at the digital algae! 🌿🐡",
+    "Yummy! A delicious snack! 🦐🫧",
+    "*crunching loudly* 🦈",
+    "Devouring the evidence! 🐙💧",
+    "Mmmmm... crunchy! 🦀",
+    "Feasting in the deep! 🌊🐟",
+    "Taking little bites... *nom*... *nom* 🐠",
+    "Chomping down hard! 🐡🪸"
+]
+
 # --- TANK CHANNEL STORAGE LOGIC ---
 TANKS_FILE = "tanks.json"
 
 def load_tanks():
-    """Loads the list of Fishy Tank channel IDs from a JSON file."""
     if os.path.exists(TANKS_FILE):
         with open(TANKS_FILE, "r") as f:
             return set(json.load(f))
     return set()
 
 def save_tanks(tanks_set):
-    """Saves the list of Fishy Tank channel IDs to a JSON file."""
     with open(TANKS_FILE, "w") as f:
         json.dump(list(tanks_set), f)
 
-# Load the saved tank channels into memory
 tank_channels = load_tanks()
 # ----------------------------------
 
@@ -68,7 +123,24 @@ class FishBot(discord.Client):
     async def on_ready(self):
         print(f'Blub blub! Logged in as {self.user}')
 
-    async def get_guppylm_response(self, prompt):
+    async def get_guppylm_response(self, prompt, channel=None):
+        nom_task = None
+        
+        # If a channel is provided, start the background nomming loop!
+        if channel:
+            async def nom_loop():
+                try:
+                    while True:
+                        # Wait 5 to 10 seconds between sounds
+                        await asyncio.sleep(random.uniform(5, 10))
+                        await channel.send(random.choice(NOMMING_SOUNDS))
+                except asyncio.CancelledError:
+                    # This happens when the AI is finished and we cancel the task
+                    pass
+            
+            # Start the loop concurrently
+            nom_task = asyncio.create_task(nom_loop())
+
         try:
             process = await asyncio.create_subprocess_exec(
                 sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
@@ -106,6 +178,10 @@ class FishBot(discord.Client):
         except Exception as e:
             tb = traceback.format_exc()
             return f"Python Error:\n```python\n{tb[:1900]}\n```"
+        finally:
+            # Guarantee the nomming stops when the AI finishes
+            if nom_task:
+                nom_task.cancel()
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -114,19 +190,12 @@ class FishBot(discord.Client):
         # ---------------------------------------------------------
         # 1. DYNAMIC FISHY TANK INTERCEPTOR LOGIC
         # ---------------------------------------------------------
-        # Check if the channel is saved in our tank_channels list
         if message.channel.id in tank_channels:
             
-            shield_phrases = [
-                "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
-                "Blub blub! I ate that message! Quick, look at me instead! 🫧",
-                "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
-                "Nothing to see here! Just Fishy swimming around the tank! 🌊",
-                "Splash! I deleted that! This is MY tank! 🐡"
-            ]
+            # 1. Reply to protect the user
+            await message.reply(random.choice(SHIELD_PHRASES))
 
-            await message.reply(random.choice(shield_phrases))
-
+            # 2. Eat the message
             try:
                 await message.delete()
             except discord.Forbidden:
@@ -134,11 +203,13 @@ class FishBot(discord.Client):
             except discord.NotFound:
                 pass 
 
+            # 3. Start generating response AND nomming sounds
             random_category = random.choice(CATEGORIES)
             
             async with message.channel.typing():
-                ai_response = await self.get_guppylm_response(random_category)
-                await message.channel.send(ai_response)
+                # We pass message.channel here to trigger the nomming loop!
+                ai_response = await self.get_guppylm_response(random_category, channel=message.channel)
+                await message.channel.send(f"**Topic: {random_category}**\n{ai_response}")
             
             return
 
@@ -151,8 +222,10 @@ class FishBot(discord.Client):
                 clean_prompt = "hello"
 
             async with message.channel.typing():
-                ai_response = await self.get_guppylm_response(clean_prompt)
+                # Nomming in normal channels too!
+                ai_response = await self.get_guppylm_response(clean_prompt, channel=message.channel)
                 await message.channel.send(ai_response)
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -163,7 +236,6 @@ client = FishBot(intents=intents)
 # 3. SLASH COMMANDS
 # ---------------------------------------------------------
 
-# The Autocomplete function for /fishy
 async def category_autocomplete(interaction: discord.Interaction, current: str):
     return [
         app_commands.Choice(name=cat, value=cat)
@@ -178,22 +250,20 @@ async def fishy_slash(interaction: discord.Interaction, category: str):
         return
 
     await interaction.response.defer()
-    ai_response = await client.get_guppylm_response(category)
+    # Pass the interaction channel to start nomming sounds!
+    ai_response = await client.get_guppylm_response(category, channel=interaction.channel)
     await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
 
-# New Command: /toggle_tank
 @client.tree.command(name="toggle_tank", description="Toggle whether this channel acts as a Fishy Tank (eats messages).")
-@app_commands.default_permissions(manage_channels=True) # Only admins/mods can see and use this!
+@app_commands.default_permissions(manage_channels=True)
 async def toggle_tank(interaction: discord.Interaction):
     channel_id = interaction.channel.id
     
     if channel_id in tank_channels:
-        # If it's already a tank, remove it
         tank_channels.remove(channel_id)
         save_tanks(tank_channels)
         await interaction.response.send_message("🫧 Blub! I have stopped eating messages here. This channel is no longer a Fishy Tank.")
     else:
-        # If it's not a tank, add it
         tank_channels.add(channel_id)
         save_tanks(tank_channels)
         await interaction.response.send_message("🌊 Splash! This channel is now a Fishy Tank! I will eat messages here and protect everyone's eyes.")
