@@ -89,18 +89,17 @@ class FishBot(discord.Client):
         TARGET_PROMO_CHANNEL = 1492658172240986142
 
         # ---------------------------------------------------------
-        # 1. FISHY TANK INTERCEPTOR LOGIC (Bots AND Humans)
+        # 1. FISHY TANK INTERCEPTOR LOGIC
         # ---------------------------------------------------------
-        # If ANYONE posts in the Fishy Tank channel...
         if message.channel.id == TARGET_PROMO_CHANNEL:
             
             # Fun, creative phrases for the fish tank
             shield_phrases = [
                 "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
-                "Blub blub! Welcome to the fish tank! Quick, look at me instead! 🫧",
-                "Message intercepted! Fishy is eating the words. Nom nom! 🐠",
+                "Blub blub! I ate that message! Quick, look at me instead! 🫧",
+                "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
                 "Nothing to see here! Just Fishy swimming around the tank! 🌊",
-                "Splash! I am a fish, and this is my tank! 🐡"
+                "Splash! I deleted that! This is MY tank! 🐡"
             ]
             
             # Hidden prompts sent to the AI to flood the channel with fun stuff
@@ -112,10 +111,18 @@ class FishBot(discord.Client):
                 "Sing a short song about swimming in a glass fish tank."
             ]
 
-            # Reply to the message directly
+            # 1. Reply to the message first
             await message.reply(random.choice(shield_phrases))
 
-            # Trigger the AI for a random response to follow up
+            # 2. DELETE the original message so no one sees it!
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                print("WARNING: Fishy needs 'Manage Messages' permission to delete the message!")
+            except discord.NotFound:
+                pass # Message was already deleted somehow
+
+            # 3. Trigger the AI for a random response to follow up
             ai_prompt = random.choice(random_ai_prompts)
             async with message.channel.typing():
                 ai_response = await self.get_guppylm_response(ai_prompt)
