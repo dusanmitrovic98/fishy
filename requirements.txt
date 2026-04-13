@@ -5,4 +5,3 @@ dnspython
 numpy
 tokenizers
 torch --index-url https://download.pytorch.org/whl/cpu
-guppylm
