@@ -5,7 +5,7 @@ import asyncio
 from aiohttp import web
 
 # --- THE CONFIG ---
-TARGET_CHANNEL_ID = 1492187958206533834
+TARGET_CHANNEL_ID = 1492658172240986142
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
 REPLIES = [
