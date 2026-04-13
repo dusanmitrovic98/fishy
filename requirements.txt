@@ -1,6 +1,8 @@
 discord.py
 aiohttp
-onnxruntime
+motor
+dnspython
 numpy
 tokenizers
-torch
+onnxruntime
+torch --index-url https://download.pytorch.org/whl/cpu

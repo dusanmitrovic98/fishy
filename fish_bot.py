@@ -7,42 +7,42 @@ import traceback
 import os
 import random
 import json
-from aiohttp import web
+from aiohttp import web, ClientSession
+from motor.motor_asyncio import AsyncIOMotorClient
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+MONGO_URI = os.getenv('MONGO_URI')
+ERROR_WEBHOOK_URL = "https://discord.com/api/webhooks/1493251412304330783/N8E3t_u-tSYBIP9k2KRlj1due8opyZDXXWhZwcdSVRwTE2h0vVsLy4m6s4upit6-mjNn"
 
-# --- EXPANDED CREATIVE LISTS ---
+# --- CATEGORIES ---
+CATEGORIES = ["about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"]
 
-CATEGORIES = [
-    "about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", 
-    "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", 
-    "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", 
-    "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", 
-    "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", 
-    "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"
-]
-
+# --- CREATIVE OCEANIC ARRAYS ---
 SHIELD_PHRASES = [
     "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
     "Blub blub! I ate that message! Quick, look at me instead! 🫧",
     "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
     "Nothing to see here! Just Fishy swimming around the tank! 🌊",
     "Splash! I deleted that! This is MY tank! 🐡",
-    "Target acquired and swallowed whole! 🦈🫧",
-    "Ad blocker deployed! I am a fish, not an ad! 🪸",
-    "Yum! That promo tasted like stale algae. 🌿🐟",
-    "Sweeping the tank clean of spam! Swish swish! 🧹🌊",
-    "Gulp! That message has been sent to the bottom of the ocean. ⚓🫧",
-    "Protecting the ecosystem from unwanted text! 🦀🛡️",
-    "Snatching that right out of the water! 🦑💧",
-    "Oops! I accidentally ate the ad while hunting for flakes. 🐡🫧",
-    "The currents have washed that message away! 🌊🐚",
-    "Chewed it up and spat it into the filter! ⚙️🐟",
+    "Bubble barrier activated! No ads getting through this reef! 🫧🪸",
+    "I’ve buried that message deep under the seafloor sand. 🐚🏝️",
+    "Gulp! I thought that was a juicy worm. My mistake! 🪱🐠",
+    "The current swept that away before I could even blink. 🌊🐟",
+    "Engaging the bioluminescent distraction protocol! 🐙✨",
+    "Washed it right out with a big splash! 🐋🌊",
+    "That message was too salty for this tank. *patooey!* 🐡💦",
+    "Dragging that promo down to the abyss. ⚓🕳️",
+    "Hiding your eyes behind my fins until the bad text is gone! 🐠🫧",
     "Spam belongs in a can, not my tank! *chomp* 🐠🥫",
     "Intercepted by the best guardian in the reef! 🪸🦈",
-    "My tank, my rules! And I say NO to that message. 🐡🌊",
     "Burp! Excuse me, that advertisement was very filling. 🫧🐟",
-    "Hiding your eyes behind my fins! 🐠🫧"
+    "Sweeping the tank clean of spam! Swish swish! 🧹🌊",
+    "Snatching that right out of the water! 🦑💧",
+    "Deployed the ink cloud! You can't see the spam anymore! 🐙💨",
+    "Camouflage mode: ON. I've blended that message into the rocks. 🪨🐡",
+    "Feeding the spam to the hungry anemones! 🪸🍴",
+    "The kraken has claimed that message for the deep! 🐙⚓",
+    "Diverting the current! That text is heading for another server. 🌊🚢"
 ]
 
 NOMMING_SOUNDS = [
@@ -52,255 +52,205 @@ NOMMING_SOUNDS = [
     "Slurp... delicious text 🐡",
     "Nibble nibble... 🦐",
     "*chomp*... needs more salt 🌊",
-    "Munching on the coral... 🪸🫧",
-    "Bloop... tasty spam 🐠",
-    "Snack time! *crunch* 🦀",
-    "Swallowing that one whole! 🦈",
-    "Chewing on the seaweed... 🌿🫧",
-    "*smack smack*... surprisingly nutritious! 🐟",
-    "Gulp! Down the hatch! 💧",
-    "Snip snap! Pinching the words into pieces! 🦀",
-    "Glug glug... washing it down with tank water 🌊",
-    "Tastes like pixel flakes! 🐠🫧",
-    "*nibbles gently*... not bad! 🐡",
-    "Munch crunch munch... 🪸",
-    "Gobbling it up before the snails get it! 🐌💧",
-    "A fine meal for a hungry fish! 🐟🌿",
-    "*chew chew*... spitting out the bad parts 🫧",
-    "Slorp! Slurping up the sentences like worms! 🪱🐠",
-    "Biting into the text... *CRACK* 🐚",
-    "Nomming away at the digital algae! 🌿🐡",
-    "Yummy! A delicious snack! 🦐🫧",
-    "*crunching loudly* 🦈",
+    "*Pop pop pop*... popping the spam bubbles! 🫧",
+    "Chewing on some tasty metadata flakes... 🐟",
+    "*Tail splash*... just tidying up the gravel! 🌊",
+    "Munching on a digital shrimp... *crunch* 🦐",
+    "Bloop... blop... swallowing the bytes... 💧",
+    "*Click click*... talking to the dolphins while I eat... 🐬",
+    "Feasting on the seaweed forest... 🌿🐠",
+    "Cracking open a cold text-shell... 🐚",
+    "Gurgle gurgle... the filter is extra hungry today! ⚙️🫧",
+    "*Chomp*... oh, that one was spicy! 🌶️🐠",
+    "Nibbling at the edges of the conversation... 🐟",
+    "Taking a big bite out of the ocean floor! 🏝️🦀",
+    "*Slurp slurp*... drinking up the ink! 🦑",
     "Devouring the evidence! 🐙💧",
-    "Mmmmm... crunchy! 🦀",
-    "Feasting in the deep! 🌊🐟",
-    "Taking little bites... *nom*... *nom* 🐠",
-    "Chomping down hard! 🐡🪸"
+    "*Munch munch*... tastes like fresh plankton! 🌊🦠",
+    "Sifting through the sand for more words... 🏖️🐠",
+    "Grinding up the message like a parrotfish! 🐡🪸",
+    "Is this organic? *chew chew* 🌿🐟"
 ]
 
-# --- DATABASES FOR RENDER PERSISTENCE ---
-TANKS_FILE = "tanks.json"
-DISABLED_NOMS_FILE = "disabled_noms.json"
+# --- MONGODB SETUP ---
+tank_channels = set()
+shield_only_channels = set()
+disabled_noms = set()
 
-def load_json_set(filepath):
-    if os.path.exists(filepath):
-        with open(filepath, "r") as f:
-            return set(json.load(f))
-    return set()
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+db = mongo_client.fishy_db
+settings_col = db.settings
 
-def save_json_set(filepath, data_set):
-    with open(filepath, "w") as f:
-        json.dump(list(data_set), f)
+async def send_error_to_webhook(error_title, error_message):
+    """Sends a detailed error report to the provided Discord Webhook."""
+    async with ClientSession() as session:
+        payload = {
+            "embeds": [{
+                "title": f"❌ Fishy Error: {error_title}",
+                "description": f"```python\n{error_message[:1900]}```",
+                "color": 15158332, # Red
+                "footer": {"text": "Fishy Tank Emergency System"}
+            }]
+        }
+        await session.post(ERROR_WEBHOOK_URL, json=payload)
 
-tank_channels = load_json_set(TANKS_FILE)
-disabled_noms = load_json_set(DISABLED_NOMS_FILE)
-# ----------------------------------
+async def load_settings_from_db():
+    global tank_channels, shield_only_channels, disabled_noms
+    try:
+        doc = await settings_col.find_one({"id": "global_config"})
+        if doc:
+            tank_channels = set(doc.get("tank_channels", []))
+            shield_only_channels = set(doc.get("shield_only_channels", []))
+            disabled_noms = set(doc.get("disabled_noms", []))
+    except Exception as e:
+        await send_error_to_webhook("Database Load Failure", traceback.format_exc())
 
-# --- DUMMY WEB SERVER FOR RENDER ---
-async def handle_ping(request):
-    return web.Response(text="Blub! Fishy is alive and guarding the tank.")
+async def sync_to_db():
+    try:
+        await settings_col.update_one(
+            {"id": "global_config"},
+            {"$set": {
+                "tank_channels": list(tank_channels),
+                "shield_only_channels": list(shield_only_channels),
+                "disabled_noms": list(disabled_noms)
+            }}, upsert=True
+        )
+    except Exception as e:
+        await send_error_to_webhook("Database Sync Failure", traceback.format_exc())
 
+# --- WEB SERVER (Render) ---
+async def handle_ping(request): return web.Response(text="Fishy is alive.")
 async def start_dummy_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"Dummy web server started on port {port}")
-# -----------------------------------
+    await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 class FishBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tree = app_commands.CommandTree(self)
-        
-        # QUEUE LOCK: Only ONE person can trigger the AI at a time!
         self.ai_lock = asyncio.Lock()
 
     async def setup_hook(self):
         self.loop.create_task(start_dummy_server())
+        await load_settings_from_db()
         await self.tree.sync()
-        print("Slash commands synced!")
 
-    async def on_ready(self):
-        print(f'Blub blub! Logged in as {self.user}')
+    async def on_ready(self): print(f'Logged in as {self.user}')
 
     async def get_guppylm_response(self, prompt, channel=None):
         nom_task = None
-
-        # WAIT IN LINE: Bot won't proceed until it's this user's turn
         async with self.ai_lock:
-            
-            # Start nomming sounds only if a channel was provided AND nomming isn't disabled here
             if channel and channel.id not in disabled_noms:
                 async def nom_loop():
                     try:
                         while True:
                             await asyncio.sleep(random.uniform(5, 10))
                             await channel.send(random.choice(NOMMING_SOUNDS))
-                    except asyncio.CancelledError:
-                        pass
-                
+                    except asyncio.CancelledError: pass
                 nom_task = asyncio.create_task(nom_loop())
-
+            
             process = None
             try:
-                # NOTE FOR ONNX: If your package uses an ONNX flag, add it here! 
-                # Example: sys.executable, '-m', 'guppylm', 'chat', '--onnx', '--prompt', prompt
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
-
-                # TIMEOUT FAILSAFE: Kill the process if it hangs for more than 60 seconds
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-
-                out_str = stdout.decode('utf-8', errors='ignore').strip()
-                err_str = stderr.decode('utf-8', errors='ignore').strip()
-
-                if process.returncode != 0:
-                    error_msg = f"Crash! Exit code: {process.returncode}\nStderr:\n{err_str}"
-                    return f"```{error_msg[:1900]}```"
-
-                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                out_str = ansi_escape.sub('', out_str)
-
-                final_lines = []
-                for line in out_str.split('\n'):
-                    clean_line = line.strip()
-                    if "GuppyLM loaded" in clean_line or clean_line.startswith("You>"):
-                        continue
-                    if "Guppy>" in clean_line:
-                        clean_line = clean_line.split("Guppy>")[-1].strip()
-                    if clean_line:
-                        final_lines.append(clean_line)
-
-                response = "\n".join(final_lines)
-                if not response:
-                    response = f"blub. output was empty. Error check:\n{err_str[:500]}"
-
-                return response[:1900]
-
-            except asyncio.TimeoutError:
-                if process:
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        pass
-                return "🫧 *cough cough* I choked on a bubble! (The AI took too long to respond. Try again!)"
-
-            except Exception as e:
-                tb = traceback.format_exc()
-                return f"Python Error:\n```python\n{tb[:1900]}\n```"
                 
-            finally:
-                # Always kill the nomming task when the AI is done/crashes
-                if nom_task:
-                    nom_task.cancel()
+                if process.returncode != 0:
+                    err_msg = stderr.decode('utf-8', errors='ignore')
+                    await send_error_to_webhook("GuppyLM Subprocess Crash", err_msg)
+                    return "🫧 *cough* My brain feels like it's in a whirlpool. (AI Error)"
+
+                out = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])').sub('', stdout.decode('utf-8', errors='ignore'))
+                final = [l.split("Guppy>")[-1].strip() for l in out.split('\n') if "Guppy>" in l]
+                return "\n".join(final)[:1900] or "blub. (no output from model)"
+            except asyncio.TimeoutError:
+                if process: process.kill()
+                return "🫧 I thought too hard and ran out of bubbles. (AI Timeout)"
+            except Exception:
+                await send_error_to_webhook("AI Processing Error", traceback.format_exc())
+                return "🫧 *Glub*... Error in the tank."
+            finally: 
+                if nom_task: nom_task.cancel()
 
     async def on_message(self, message):
-        if message.author == self.user:
-            return
+        if message.author == self.user: return
+        cid = message.channel.id
 
-        # ---------------------------------------------------------
-        # 1. DYNAMIC FISHY TANK INTERCEPTOR LOGIC
-        # ---------------------------------------------------------
-        if message.channel.id in tank_channels:
-            
+        # 1. Full Tank Mode (AI)
+        if cid in tank_channels:
             await message.reply(random.choice(SHIELD_PHRASES))
-
-            try:
-                await message.delete()
-            except discord.Forbidden:
-                print("WARNING: Fishy needs 'Manage Messages' permission to delete the message!")
-            except discord.NotFound:
-                pass 
-
-            random_category = random.choice(CATEGORIES)
-            
+            try: await message.delete()
+            except: pass
             async with message.channel.typing():
-                ai_response = await self.get_guppylm_response(random_category, channel=message.channel)
-                await message.channel.send(f"**Topic: {random_category}**\n{ai_response}")
-            
+                cat = random.choice(CATEGORIES)
+                resp = await self.get_guppylm_response(cat, channel=message.channel)
+                await message.channel.send(f"**Topic: {cat}**\n{resp}")
             return
 
-        # ---------------------------------------------------------
-        # 2. NORMAL CHAT LOGIC (Anywhere else)
-        # ---------------------------------------------------------
+        # 2. Shield Mode (Quiet)
+        elif cid in shield_only_channels:
+            await message.reply(random.choice(SHIELD_PHRASES))
+            try: await message.delete()
+            except: pass
+            return
+
+        # 3. Mentioned Chat
         if "fishy" in message.content.lower():
-            clean_prompt = message.content.lower().replace("fishy", "").strip()
-            if not clean_prompt:
-                clean_prompt = "hello"
-
+            p = message.content.lower().replace("fishy", "").strip() or "hello"
             async with message.channel.typing():
-                ai_response = await self.get_guppylm_response(clean_prompt, channel=message.channel)
-                await message.channel.send(ai_response)
-
+                resp = await self.get_guppylm_response(p, channel=message.channel)
+                await message.channel.send(resp)
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = FishBot(intents=intents)
 
-# ---------------------------------------------------------
-# 3. SLASH COMMANDS
-# ---------------------------------------------------------
-
-async def category_autocomplete(interaction: discord.Interaction, current: str):
-    return [
-        app_commands.Choice(name=cat, value=cat)
-        for cat in CATEGORIES if current.lower() in cat.lower()
-    ][:25] 
-
-@client.tree.command(name="fishy", description="Make Fishy talk about a specific category!")
-@app_commands.autocomplete(category=category_autocomplete)
-async def fishy_slash(interaction: discord.Interaction, category: str):
-    if category not in CATEGORIES:
-        await interaction.response.send_message(f"Blub! '{category}' isn't a valid category. Try selecting from the list!", ephemeral=True)
-        return
-
-    await interaction.response.defer()
-    ai_response = await client.get_guppylm_response(category, channel=interaction.channel)
-    await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
-
-@client.tree.command(name="toggle_tank", description="Toggle whether this channel acts as a Fishy Tank (eats messages).")
+# --- SLASH COMMANDS ---
+@client.tree.command(name="toggle_tank", description="AI mode: Eats messages and makes Fishy talk.")
 @app_commands.default_permissions(manage_channels=True)
 async def toggle_tank(interaction: discord.Interaction):
-    channel_id = interaction.channel.id
-    
-    if channel_id in tank_channels:
-        tank_channels.remove(channel_id)
-        save_json_set(TANKS_FILE, tank_channels)
-        await interaction.response.send_message("🫧 Blub! I have stopped eating messages here. This channel is no longer a Fishy Tank.")
+    cid = interaction.channel.id
+    shield_only_channels.discard(cid)
+    if cid in tank_channels:
+        tank_channels.remove(cid)
+        msg = "🫧 Tank Mode: **OFF**."
     else:
-        tank_channels.add(channel_id)
-        save_json_set(TANKS_FILE, tank_channels)
-        await interaction.response.send_message("🌊 Splash! This channel is now a Fishy Tank! I will eat messages here and protect everyone's eyes.")
+        tank_channels.add(cid)
+        msg = "🌊 Tank Mode: **ON**. I am now eating ads and talking about the reef!"
+    await sync_to_db(); await interaction.response.send_message(msg)
 
-@client.tree.command(name="toggle_nomming", description="Turn Fishy's waiting/eating sounds ON or OFF for this channel.")
+@client.tree.command(name="toggle_shield", description="Quiet mode: Eats messages but Fishy stays quiet.")
 @app_commands.default_permissions(manage_channels=True)
-async def toggle_nomming(interaction: discord.Interaction):
-    channel_id = interaction.channel.id
-    
-    if channel_id in disabled_noms:
-        # It was disabled, let's enable it!
-        disabled_noms.remove(channel_id)
-        save_json_set(DISABLED_NOMS_FILE, disabled_noms)
-        await interaction.response.send_message("🐟 *Chomp chomp!* Nomming sounds are now **ON** in this channel.")
+async def toggle_shield(interaction: discord.Interaction):
+    cid = interaction.channel.id
+    tank_channels.discard(cid)
+    if cid in shield_only_channels:
+        shield_only_channels.remove(cid)
+        msg = "🛡️ Shield Mode: **OFF**."
     else:
-        # It was enabled, let's disable it!
-        disabled_noms.add(channel_id)
-        save_json_set(DISABLED_NOMS_FILE, disabled_noms)
-        await interaction.response.send_message("🫧 *Quiet blubs...* Nomming sounds are now **OFF** in this channel.")
+        shield_only_channels.add(cid)
+        msg = "🛡️ Shield Mode: **ON**. I will delete messages quietly without AI spam."
+    await sync_to_db(); await interaction.response.send_message(msg)
 
-# ---------------------------------------------------------
+@client.tree.command(name="toggle_nomming", description="Toggle sounds while Fishy is thinking.")
+@app_commands.default_permissions(manage_channels=True)
+async def toggle_nom(interaction: discord.Interaction):
+    cid = interaction.channel.id
+    if cid in disabled_noms:
+        disabled_noms.remove(cid)
+        msg = "🐟 Nomming: **ON**. *Chomp chomp!*"
+    else:
+        disabled_noms.add(cid)
+        msg = "🫧 Nomming: **OFF**. *Silent bubbles...*"
+    await sync_to_db(); await interaction.response.send_message(msg)
 
-if not TOKEN:
-    print("ERROR: DISCORD_BOT_TOKEN environment variable not set!")
-    sys.exit(1)
-
-client.run(TOKEN)
+if __name__ == "__main__":
+    if not TOKEN or not MONGO_URI:
+        print("Set your Environment Variables!")
+        sys.exit(1)
+    client.run(TOKEN)
