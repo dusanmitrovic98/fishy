@@ -128,7 +128,7 @@ class FishBot(discord.Client):
                     sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45.0)
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
 
                 if process.returncode != 0:
                     err_msg = stderr.decode('utf-8', errors='ignore')
