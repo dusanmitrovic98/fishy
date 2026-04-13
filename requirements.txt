@@ -3,3 +3,4 @@ aiohttp
 onnxruntime
 numpy
 tokenizers
+torch
