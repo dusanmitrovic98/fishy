@@ -131,12 +131,11 @@ class FishBot(discord.Client):
             except discord.NotFound:
                 pass 
 
-            # 3. Trigger the AI using a random category from your list
+            # 3. Trigger the AI using EXACTLY the category name (Fix applied here)
             random_category = random.choice(CATEGORIES)
-            ai_prompt = f"Talk to me about {random_category}."
             
             async with message.channel.typing():
-                ai_response = await self.get_guppylm_response(ai_prompt)
+                ai_response = await self.get_guppylm_response(random_category)
                 await message.channel.send(ai_response)
             
             # Stop here so we don't trigger the regular chat logic
@@ -181,9 +180,8 @@ async def fishy_slash(interaction: discord.Interaction, category: str):
     # Acknowledge the command immediately because AI generation takes time
     await interaction.response.defer()
     
-    # Generate response based on the selected category
-    prompt = f"Talk to me about {category}."
-    ai_response = await client.get_guppylm_response(prompt)
+    # Send EXACTLY the category string so the model recognizes it (Fix applied here)
+    ai_response = await client.get_guppylm_response(category)
     
     # Send the final result
     await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
