@@ -1,4 +1,5 @@
 import discord
+from discord import app_commands
 import asyncio
 import sys
 import re
@@ -8,6 +9,16 @@ import random
 from aiohttp import web
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+
+# Your provided list of categories
+CATEGORIES = [
+    "about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", 
+    "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", 
+    "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", 
+    "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", 
+    "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", 
+    "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"
+]
 
 # --- DUMMY WEB SERVER FOR RENDER ---
 async def handle_ping(request):
@@ -25,14 +36,22 @@ async def start_dummy_server():
 # -----------------------------------
 
 class FishBot(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Create a command tree for slash commands
+        self.tree = app_commands.CommandTree(self)
+
     async def setup_hook(self):
         # Start the dummy web server to keep Render happy
         self.loop.create_task(start_dummy_server())
+        # Sync slash commands to Discord
+        await self.tree.sync()
+        print("Slash commands synced!")
 
     async def on_ready(self):
         print(f'Blub blub! Logged in as {self.user}')
 
-    # Helper function to generate AI responses to prevent duplicate code
+    # Helper function to generate AI responses
     async def get_guppylm_response(self, prompt):
         try:
             # Use the official working PyTorch CLI command
@@ -93,22 +112,12 @@ class FishBot(discord.Client):
         # ---------------------------------------------------------
         if message.channel.id == TARGET_PROMO_CHANNEL:
             
-            # Fun, creative phrases for the fish tank
             shield_phrases = [
                 "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
                 "Blub blub! I ate that message! Quick, look at me instead! 🫧",
                 "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
                 "Nothing to see here! Just Fishy swimming around the tank! 🌊",
                 "Splash! I deleted that! This is MY tank! 🐡"
-            ]
-            
-            # Hidden prompts sent to the AI to flood the channel with fun stuff
-            random_ai_prompts = [
-                "Tell me a random interesting fact about the ocean or fish.",
-                "Say something incredibly funny and random to distract everyone.",
-                "Make up a very short story about a brave fish in a fish tank.",
-                "Give me a random inspiring quote.",
-                "Sing a short song about swimming in a glass fish tank."
             ]
 
             # 1. Reply to the message first
@@ -120,15 +129,17 @@ class FishBot(discord.Client):
             except discord.Forbidden:
                 print("WARNING: Fishy needs 'Manage Messages' permission to delete the message!")
             except discord.NotFound:
-                pass # Message was already deleted somehow
+                pass 
 
-            # 3. Trigger the AI for a random response to follow up
-            ai_prompt = random.choice(random_ai_prompts)
+            # 3. Trigger the AI using a random category from your list
+            random_category = random.choice(CATEGORIES)
+            ai_prompt = f"Talk to me about {random_category}."
+            
             async with message.channel.typing():
                 ai_response = await self.get_guppylm_response(ai_prompt)
                 await message.channel.send(ai_response)
             
-            # Stop here so we don't trigger the regular chat logic below
+            # Stop here so we don't trigger the regular chat logic
             return
 
         # ---------------------------------------------------------
@@ -143,10 +154,40 @@ class FishBot(discord.Client):
                 ai_response = await self.get_guppylm_response(clean_prompt)
                 await message.channel.send(ai_response)
 
+
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = FishBot(intents=intents)
+
+# ---------------------------------------------------------
+# 3. /FISHY SLASH COMMAND WITH AUTOCOMPLETE SELECTOR
+# ---------------------------------------------------------
+async def category_autocomplete(interaction: discord.Interaction, current: str):
+    """Filters the 47 categories based on what the user is typing in the slash command"""
+    return [
+        app_commands.Choice(name=cat, value=cat)
+        for cat in CATEGORIES if current.lower() in cat.lower()
+    ][:25] # Discord only allows returning 25 items at a time
+
+@client.tree.command(name="fishy", description="Make Fishy talk about a specific category!")
+@app_commands.autocomplete(category=category_autocomplete)
+async def fishy_slash(interaction: discord.Interaction, category: str):
+    # If the user types something not in the list manually, handle it gently
+    if category not in CATEGORIES:
+        await interaction.response.send_message(f"Blub! '{category}' isn't a valid category. Try selecting from the list!", ephemeral=True)
+        return
+
+    # Acknowledge the command immediately because AI generation takes time
+    await interaction.response.defer()
+    
+    # Generate response based on the selected category
+    prompt = f"Talk to me about {category}."
+    ai_response = await client.get_guppylm_response(prompt)
+    
+    # Send the final result
+    await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
+
 
 if not TOKEN:
     print("ERROR: DISCORD_BOT_TOKEN environment variable not set!")
