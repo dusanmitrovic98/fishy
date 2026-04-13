@@ -6,6 +6,7 @@ import re
 import traceback
 import os
 import random
+import json
 from aiohttp import web
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -19,6 +20,25 @@ CATEGORIES = [
     "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", 
     "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"
 ]
+
+# --- TANK CHANNEL STORAGE LOGIC ---
+TANKS_FILE = "tanks.json"
+
+def load_tanks():
+    """Loads the list of Fishy Tank channel IDs from a JSON file."""
+    if os.path.exists(TANKS_FILE):
+        with open(TANKS_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
+
+def save_tanks(tanks_set):
+    """Saves the list of Fishy Tank channel IDs to a JSON file."""
+    with open(TANKS_FILE, "w") as f:
+        json.dump(list(tanks_set), f)
+
+# Load the saved tank channels into memory
+tank_channels = load_tanks()
+# ----------------------------------
 
 # --- DUMMY WEB SERVER FOR RENDER ---
 async def handle_ping(request):
@@ -38,23 +58,18 @@ async def start_dummy_server():
 class FishBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Create a command tree for slash commands
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # Start the dummy web server to keep Render happy
         self.loop.create_task(start_dummy_server())
-        # Sync slash commands to Discord
         await self.tree.sync()
         print("Slash commands synced!")
 
     async def on_ready(self):
         print(f'Blub blub! Logged in as {self.user}')
 
-    # Helper function to generate AI responses
     async def get_guppylm_response(self, prompt):
         try:
-            # Use the official working PyTorch CLI command
             process = await asyncio.create_subprocess_exec(
                 sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
                 stdout=asyncio.subprocess.PIPE,
@@ -69,27 +84,20 @@ class FishBot(discord.Client):
                 error_msg = f"Crash! Exit code: {process.returncode}\nStderr:\n{err_str}"
                 return f"```{error_msg[:1900]}```"
 
-            # Remove terminal color codes
             ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             out_str = ansi_escape.sub('', out_str)
 
             final_lines = []
             for line in out_str.split('\n'):
                 clean_line = line.strip()
-
-                # Filter out the model loading text and user echo
                 if "GuppyLM loaded" in clean_line or clean_line.startswith("You>"):
                     continue
-
-                # Grab only the fish's response
                 if "Guppy>" in clean_line:
                     clean_line = clean_line.split("Guppy>")[-1].strip()
-
                 if clean_line:
                     final_lines.append(clean_line)
 
             response = "\n".join(final_lines)
-
             if not response:
                 response = f"blub. output was empty. Error check:\n{err_str[:500]}"
 
@@ -100,17 +108,14 @@ class FishBot(discord.Client):
             return f"Python Error:\n```python\n{tb[:1900]}\n```"
 
     async def on_message(self, message):
-        # Ignore messages from ourselves
         if message.author == self.user:
             return
 
-        # ID of the "Fishy Tank" channel
-        TARGET_PROMO_CHANNEL = 1492658172240986142
-
         # ---------------------------------------------------------
-        # 1. FISHY TANK INTERCEPTOR LOGIC
+        # 1. DYNAMIC FISHY TANK INTERCEPTOR LOGIC
         # ---------------------------------------------------------
-        if message.channel.id == TARGET_PROMO_CHANNEL:
+        # Check if the channel is saved in our tank_channels list
+        if message.channel.id in tank_channels:
             
             shield_phrases = [
                 "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
@@ -120,10 +125,8 @@ class FishBot(discord.Client):
                 "Splash! I deleted that! This is MY tank! 🐡"
             ]
 
-            # 1. Reply to the message first
             await message.reply(random.choice(shield_phrases))
 
-            # 2. DELETE the original message so no one sees it!
             try:
                 await message.delete()
             except discord.Forbidden:
@@ -131,14 +134,12 @@ class FishBot(discord.Client):
             except discord.NotFound:
                 pass 
 
-            # 3. Trigger the AI using EXACTLY the category name (Fix applied here)
             random_category = random.choice(CATEGORIES)
             
             async with message.channel.typing():
                 ai_response = await self.get_guppylm_response(random_category)
                 await message.channel.send(ai_response)
             
-            # Stop here so we don't trigger the regular chat logic
             return
 
         # ---------------------------------------------------------
@@ -153,39 +154,51 @@ class FishBot(discord.Client):
                 ai_response = await self.get_guppylm_response(clean_prompt)
                 await message.channel.send(ai_response)
 
-
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = FishBot(intents=intents)
 
 # ---------------------------------------------------------
-# 3. /FISHY SLASH COMMAND WITH AUTOCOMPLETE SELECTOR
+# 3. SLASH COMMANDS
 # ---------------------------------------------------------
+
+# The Autocomplete function for /fishy
 async def category_autocomplete(interaction: discord.Interaction, current: str):
-    """Filters the 47 categories based on what the user is typing in the slash command"""
     return [
         app_commands.Choice(name=cat, value=cat)
         for cat in CATEGORIES if current.lower() in cat.lower()
-    ][:25] # Discord only allows returning 25 items at a time
+    ][:25] 
 
 @client.tree.command(name="fishy", description="Make Fishy talk about a specific category!")
 @app_commands.autocomplete(category=category_autocomplete)
 async def fishy_slash(interaction: discord.Interaction, category: str):
-    # If the user types something not in the list manually, handle it gently
     if category not in CATEGORIES:
         await interaction.response.send_message(f"Blub! '{category}' isn't a valid category. Try selecting from the list!", ephemeral=True)
         return
 
-    # Acknowledge the command immediately because AI generation takes time
     await interaction.response.defer()
-    
-    # Send EXACTLY the category string so the model recognizes it (Fix applied here)
     ai_response = await client.get_guppylm_response(category)
-    
-    # Send the final result
     await interaction.followup.send(f"**Topic: {category}**\n{ai_response}")
 
+# New Command: /toggle_tank
+@client.tree.command(name="toggle_tank", description="Toggle whether this channel acts as a Fishy Tank (eats messages).")
+@app_commands.default_permissions(manage_channels=True) # Only admins/mods can see and use this!
+async def toggle_tank(interaction: discord.Interaction):
+    channel_id = interaction.channel.id
+    
+    if channel_id in tank_channels:
+        # If it's already a tank, remove it
+        tank_channels.remove(channel_id)
+        save_tanks(tank_channels)
+        await interaction.response.send_message("🫧 Blub! I have stopped eating messages here. This channel is no longer a Fishy Tank.")
+    else:
+        # If it's not a tank, add it
+        tank_channels.add(channel_id)
+        save_tanks(tank_channels)
+        await interaction.response.send_message("🌊 Splash! This channel is now a Fishy Tank! I will eat messages here and protect everyone's eyes.")
+
+# ---------------------------------------------------------
 
 if not TOKEN:
     print("ERROR: DISCORD_BOT_TOKEN environment variable not set!")
