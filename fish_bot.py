@@ -6,19 +6,42 @@ import re
 import traceback
 import os
 import random
-import json
+import urllib.parse
 from aiohttp import web, ClientSession
 from motor.motor_asyncio import AsyncIOMotorClient
 
+def escape_mongo_uri(uri: str) -> str:
+    """Safely escapes the username and password in a MongoDB URI to fix PyMongo crashes."""
+    if not uri: return ""
+    try:
+        scheme_split = uri.split("://", 1)
+        if len(scheme_split) != 2: return uri
+        scheme, rest = scheme_split[0], scheme_split[1]
+        
+        if "@" not in rest: return uri
+        
+        # Split at the last '@' to cleanly separate credentials from the host
+        creds, host_part = rest.rsplit("@", 1)
+        if ":" not in creds: return uri
+            
+        user, pwd = creds.split(":", 1)
+        # Unquote first to prevent double-encoding, then quote properly
+        user_quoted = urllib.parse.quote_plus(urllib.parse.unquote(user))
+        pwd_quoted = urllib.parse.quote_plus(urllib.parse.unquote(pwd))
+        
+        return f"{scheme}://{user_quoted}:{pwd_quoted}@{host_part}"
+    except Exception:
+        return uri
+
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-MONGO_URI = os.getenv('MONGO_URI')
+MONGO_URI = escape_mongo_uri(os.getenv('MONGO_URI'))
 ERROR_WEBHOOK_URL = "https://discord.com/api/webhooks/1493251412304330783/N8E3t_u-tSYBIP9k2KRlj1due8opyZDXXWhZwcdSVRwTE2h0vVsLy4m6s4upit6-mjNn"
 
 # --- CATEGORIES ---
-CATEGORIES = ["about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"]
+CATEGORIES =["about", "age", "bubbles", "bye", "cat", "children", "confused", "dreams", "feeling", "filter", "food", "glass", "glass_tap", "gravel", "greeting", "happy", "hungry", "joke", "light", "lonely", "love", "meaning", "memory", "music", "name", "noise", "outside", "pain", "plants", "poop", "reflection", "sand", "seasons", "sick", "size", "sleep", "smart", "tank", "taste", "temp_cold", "temp_hot", "time", "tired", "tv", "visitors", "water", "weather"]
 
 # --- CREATIVE OCEANIC ARRAYS ---
-SHIELD_PHRASES = [
+SHIELD_PHRASES =[
     "Do not worry! Fishy is keeping your eyes safe from these messages! 🐟🛡️",
     "Blub blub! I ate that message! Quick, look at me instead! 🫧",
     "Message intercepted! Fishy thought it was fish food. Nom nom! 🐠",
@@ -45,7 +68,7 @@ SHIELD_PHRASES = [
     "Diverting the current! That text is heading for another server. 🌊🚢"
 ]
 
-NOMMING_SOUNDS = [
+NOMMING_SOUNDS =[
     "*nom nom nom*... 🫧",
     "Crunch crunch... eating the data kelp 🪸",
     "Glub glub... chewing on the bytes 🐟",
@@ -75,44 +98,52 @@ NOMMING_SOUNDS = [
 # --- MONGODB SETUP ---
 tank_channels = set()
 shield_only_channels = set()
-disabled_noms = set()
+enabled_noms = set()
 
-mongo_client = AsyncIOMotorClient(MONGO_URI)
-db = mongo_client.fishy_db
-settings_col = db.settings
+if MONGO_URI:
+    mongo_client = AsyncIOMotorClient(MONGO_URI)
+    db = mongo_client.fishy_db
+    settings_col = db.settings
+else:
+    settings_col = None
 
 async def send_error_to_webhook(error_title, error_message):
     """Sends a detailed error report to the provided Discord Webhook."""
     async with ClientSession() as session:
         payload = {
-            "embeds": [{
+            "embeds":[{
                 "title": f"❌ Fishy Error: {error_title}",
                 "description": f"```python\n{error_message[:1900]}```",
                 "color": 15158332, # Red
                 "footer": {"text": "Fishy Tank Emergency System"}
             }]
         }
-        await session.post(ERROR_WEBHOOK_URL, json=payload)
+        try:
+            await session.post(ERROR_WEBHOOK_URL, json=payload)
+        except Exception:
+            pass
 
 async def load_settings_from_db():
-    global tank_channels, shield_only_channels, disabled_noms
+    global tank_channels, shield_only_channels, enabled_noms
+    if not settings_col: return
     try:
         doc = await settings_col.find_one({"id": "global_config"})
         if doc:
-            tank_channels = set(doc.get("tank_channels", []))
+            tank_channels = set(doc.get("tank_channels",[]))
             shield_only_channels = set(doc.get("shield_only_channels", []))
-            disabled_noms = set(doc.get("disabled_noms", []))
+            enabled_noms = set(doc.get("enabled_noms",[]))
     except Exception as e:
         await send_error_to_webhook("Database Load Failure", traceback.format_exc())
 
 async def sync_to_db():
+    if not settings_col: return
     try:
         await settings_col.update_one(
             {"id": "global_config"},
             {"$set": {
                 "tank_channels": list(tank_channels),
                 "shield_only_channels": list(shield_only_channels),
-                "disabled_noms": list(disabled_noms)
+                "enabled_noms": list(enabled_noms)
             }}, upsert=True
         )
     except Exception as e:
@@ -138,12 +169,14 @@ class FishBot(discord.Client):
         await load_settings_from_db()
         await self.tree.sync()
 
-    async def on_ready(self): print(f'Logged in as {self.user}')
+    async def on_ready(self): 
+        print(f'Logged in as {self.user}')
 
     async def get_guppylm_response(self, prompt, channel=None):
         nom_task = None
         async with self.ai_lock:
-            if channel and channel.id not in disabled_noms:
+            # Nomming is now OFF by default, explicitly check inclusion list
+            if channel and channel.id in enabled_noms:
                 async def nom_loop():
                     try:
                         while True:
@@ -151,15 +184,16 @@ class FishBot(discord.Client):
                             await channel.send(random.choice(NOMMING_SOUNDS))
                     except asyncio.CancelledError: pass
                 nom_task = asyncio.create_task(nom_loop())
-            
+
             process = None
             try:
+                # Natively runs GuppyLM PyTorch Chat Workflow without ONNX
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, '-m', 'guppylm', 'chat', '--prompt', prompt,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-                
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45.0)
+
                 if process.returncode != 0:
                     err_msg = stderr.decode('utf-8', errors='ignore')
                     await send_error_to_webhook("GuppyLM Subprocess Crash", err_msg)
@@ -174,7 +208,7 @@ class FishBot(discord.Client):
             except Exception:
                 await send_error_to_webhook("AI Processing Error", traceback.format_exc())
                 return "🫧 *Glub*... Error in the tank."
-            finally: 
+            finally:
                 if nom_task: nom_task.cancel()
 
     async def on_message(self, message):
@@ -183,20 +217,23 @@ class FishBot(discord.Client):
 
         # 1. Full Tank Mode (AI)
         if cid in tank_channels:
-            await message.reply(random.choice(SHIELD_PHRASES))
             try: await message.delete()
             except: pass
+            
+            # Send the shield phrase then cleanly EDIT it to the AI response (Prevents "Reply to deleted message" visual bugs)
+            msg = await message.channel.send(random.choice(SHIELD_PHRASES))
             async with message.channel.typing():
                 cat = random.choice(CATEGORIES)
                 resp = await self.get_guppylm_response(cat, channel=message.channel)
-                await message.channel.send(f"**Topic: {cat}**\n{resp}")
+                await msg.edit(content=f"**Topic: {cat}**\n{resp}")
             return
 
         # 2. Shield Mode (Quiet)
         elif cid in shield_only_channels:
-            await message.reply(random.choice(SHIELD_PHRASES))
             try: await message.delete()
             except: pass
+            # Auto deletes shield notifications after 10s so it doesn't clutter chat
+            await message.channel.send(random.choice(SHIELD_PHRASES), delete_after=10) 
             return
 
         # 3. Mentioned Chat
@@ -204,7 +241,7 @@ class FishBot(discord.Client):
             p = message.content.lower().replace("fishy", "").strip() or "hello"
             async with message.channel.typing():
                 resp = await self.get_guppylm_response(p, channel=message.channel)
-                await message.channel.send(resp)
+                await message.reply(resp)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -241,16 +278,16 @@ async def toggle_shield(interaction: discord.Interaction):
 @app_commands.default_permissions(manage_channels=True)
 async def toggle_nom(interaction: discord.Interaction):
     cid = interaction.channel.id
-    if cid in disabled_noms:
-        disabled_noms.remove(cid)
-        msg = "🐟 Nomming: **ON**. *Chomp chomp!*"
-    else:
-        disabled_noms.add(cid)
+    if cid in enabled_noms:
+        enabled_noms.remove(cid)
         msg = "🫧 Nomming: **OFF**. *Silent bubbles...*"
+    else:
+        enabled_noms.add(cid)
+        msg = "🐟 Nomming: **ON**. *Chomp chomp!*"
     await sync_to_db(); await interaction.response.send_message(msg)
 
 if __name__ == "__main__":
     if not TOKEN or not MONGO_URI:
-        print("Set your Environment Variables!")
+        print("❌ Set your DISCORD_BOT_TOKEN and MONGO_URI Environment Variables!")
         sys.exit(1)
     client.run(TOKEN)
