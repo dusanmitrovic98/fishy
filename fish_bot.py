@@ -22,8 +22,18 @@ REPLIES = [
 
 # --- THE BOT CLASS ---
 class FishyBot(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Create a command tree for the bot
+        self.tree = discord.app_commands.CommandTree(self)
+
     async def on_ready(self):
         print(f"Fishy logged in as {self.user} and is swimming in {TARGET_CHANNEL_ID}")
+        
+        # This tells Discord to delete all global slash commands for this bot
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync()
+        print("Cleared all old slash commands from Discord!")
 
     async def on_message(self, message):
         if message.author == self.user:
