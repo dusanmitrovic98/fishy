@@ -6,9 +6,11 @@ from aiohttp import web
 
 # --- THE CONFIG ---
 TARGET_CHANNEL_ID = 1492658172240986142
+MINOR_ROLE_ID = 1495196051123077341
+
+# Pull from Environment Variables (Render or .env)
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-# Set a password in Render env vars, or it defaults to 'fishy123'
-DASHBOARD_PASS = os.getenv('DASHBOARD_PASS', 'fishy123') 
+DASHBOARD_PASS = os.getenv('DASHBOARD_PASS', 'fishy123')
 
 REPLIES = [
     "*Giggles and hides behind a sea fan* Hehe, a shark was chasing me, but I led him straight to your message! GULP! 🦈🫧",
@@ -24,13 +26,10 @@ REPLIES = [
 class FishyBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Create a command tree for the bot
         self.tree = discord.app_commands.CommandTree(self)
 
     async def on_ready(self):
         print(f"Fishy logged in as {self.user} and is swimming in {TARGET_CHANNEL_ID}")
-        
-        # This tells Discord to delete all global slash commands for this bot
         self.tree.clear_commands(guild=None)
         await self.tree.sync()
         print("Cleared all old slash commands from Discord!")
@@ -46,6 +45,33 @@ class FishyBot(discord.Client):
             except Exception as e:
                 print(f"Error eating message: {e}")
 
+    # --- ADD THIS NEW EVENT ---
+    async def on_member_update(self, before, after):
+        # Check if they just received the minor role
+        had_role_before = any(role.id == MINOR_ROLE_ID for role in before.roles)
+        has_role_now = any(role.id == MINOR_ROLE_ID for role in after.roles)
+
+        if not had_role_before and has_role_now:
+            print(f"Detected minor role added to {after.name} ({after.id}). Initiating ban sequence.")
+            
+            # 1. Try to DM the user
+            try:
+                await after.send("I am sorry but for safety reasons we do not allow minors in our server")
+            except discord.Forbidden:
+                # This happens if the user has DMs disabled or blocked the bot.
+                print(f"Could not DM {after.name}. They have DMs disabled. Proceeding to ban.")
+            except Exception as e:
+                print(f"Unexpected error DMing {after.name}: {e}")
+
+            # 2. Ban the user (Banning automatically kicks them from the server)
+            try:
+                await after.ban(reason="Safety reasons: Assigned the minor role.")
+                print(f"Successfully banned {after.name}.")
+            except discord.Forbidden:
+                print(f"ERROR: I don't have permission to ban {after.name}! Check my role hierarchy/permissions.")
+            except Exception as e:
+                print(f"Unexpected error banning {after.name}: {e}")
+
 # --- GLOBAL STATE MANAGER ---
 bot_task = None
 bot_instance = None
@@ -56,6 +82,7 @@ async def run_bot():
     is_bot_running = True
     intents = discord.Intents.default()
     intents.message_content = True
+    intents.members = True
     bot_instance = FishyBot(intents=intents)
     
     try:
@@ -220,7 +247,7 @@ async def main():
 
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 8081))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"Web Dashboard running on port {port}")
