@@ -149,7 +149,7 @@ class FishyBot(discord.Client):
             
             # 1. Try to DM the user
             try:
-                await after.send("I am sorry but for safety reasons we do not allow minors in our server")
+                await after.send("I am sorry, but for safety reasons we do not allow minors on our server. If it was a missclick, please contact Dule (username: bk2o198).")
             except discord.Forbidden:
                 # This happens if the user has DMs disabled or blocked the bot.
                 print(f"Could not DM {after.name}. They have DMs disabled. Proceeding to ban.")
