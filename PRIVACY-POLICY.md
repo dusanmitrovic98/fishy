@@ -1,0 +1,1 @@
+This is a private bot, which does not collect and user data. Its primary usage is to remove bumper bots messages. It also bans users who check that they are a minor since our server is SFW 18+ only. Bot does not take user data in any way!
